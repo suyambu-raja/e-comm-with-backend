@@ -9,12 +9,19 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
       POSTGRES_DB: shopshield
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
     volumes:
-      - ./database:/docker-entrypoint-initdb.d
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/02-init.sql
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d shopshield"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Spring Boot Backend Service
   spring-backend:
@@ -23,15 +30,24 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     depends_on:
-      - postgres-db
+      postgres-db:
+        condition: service_healthy
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/shopshield
       - SPRING_DATASOURCE_USERNAME=admin
       - SPRING_DATASOURCE_PASSWORD=password
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+      - SPRING_PROFILES_ACTIVE=docker
+      - GOOGLE_VISION_API_KEY=AIzaSyAJ_gWenfHM9Gbt6QNyf996FO3dDuDwGQM
+      - GEMINI_API_KEY=AIzaSyDfzFKOYj-GT8jRhbA5E6jMS_KvSbsRW3A
     ports:
       - "8080:8080"
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # FastAPI OCR Microservice
   ocr-service:
@@ -39,9 +55,16 @@ services:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
+    environment:
+      - GOOGLE_VISION_API_KEY=AIzaSyAJ_gWenfHM9Gbt6QNyf996FO3dDuDwGQM
     ports:
       - "8000:8000"
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # FastAPI Computer Vision (Fake Product) Microservice
   cv-service:
@@ -49,20 +72,33 @@ services:
     build:
       context: ./cv-service
       dockerfile: Dockerfile
+    environment:
+      - CV_MODEL_PATH=/app/models
+      - ROBOFLOW_API_KEY=K88180301688957
     ports:
       - "8001:8001"
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # React Frontend Service (served with Nginx)
   frontend:
     container_name: frontend
     build:
-      context: ./frontend
+      context: ./frontend/e-comm-2
       dockerfile: Dockerfile
+    environment:
+      - VITE_API_BASE_URL=http://spring-backend:8080/api
+      - VITE_OCR_SERVICE_URL=http://ocr-service:8000
+      - VITE_CV_SERVICE_URL=http://cv-service:8001
     ports:
       - "3000:80" # Nginx default port is 80
     depends_on:
-      - spring-backend
+      spring-backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -1,12 +1,28 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from typing import IO
 import uvicorn
+import os
 
 app = FastAPI(
     title="OCR Service",
     description="A microservice to perform Optical Character Recognition on product price tags.",
     version="1.0.0"
 )
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "ocr-service"}
 
 @app.post("/scan/price-tag")
 async def scan_price_tag(file: UploadFile = File(...)):

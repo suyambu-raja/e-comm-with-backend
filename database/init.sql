@@ -1,21 +1,32 @@
+-- ShopShield Database Initialization Script
+-- This script creates the database structure with sample data
+
+-- Create the database and schemas (this runs first via docker-compose)
+\c shopshield;
+
 -- Create schemas for different services
 CREATE SCHEMA IF NOT EXISTS backend;
 CREATE SCHEMA IF NOT EXISTS ocr_service;
 CREATE SCHEMA IF NOT EXISTS cv_service;
 CREATE SCHEMA IF NOT EXISTS compliance;
 
+-- Set search path to include all schemas
+SET search_path TO backend, ocr_service, cv_service, compliance, public;
+
 -- Table for roles in the backend schema
-CREATE TABLE backend.roles (
+CREATE TABLE IF NOT EXISTS backend.roles (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(60) NOT NULL UNIQUE
 );
 
 -- Insert default roles
-INSERT INTO backend.roles (name) VALUES ('ROLE_USER'), ('ROLE_ADMIN') ON CONFLICT (name) DO NOTHING;
+INSERT INTO backend.roles (name) VALUES 
+    ('ROLE_USER'), 
+    ('ROLE_ADMIN') 
+ON CONFLICT (name) DO NOTHING;
 
--- Table for application users in the backend schema
--- Stores user information for authentication and authorization.
-CREATE TABLE backend.users (
+-- Table for application users
+CREATE TABLE IF NOT EXISTS backend.users (
     id BIGSERIAL PRIMARY KEY,
     username VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
@@ -25,7 +36,7 @@ CREATE TABLE backend.users (
 );
 
 -- Table for user roles mapping
-CREATE TABLE backend.user_roles (
+CREATE TABLE IF NOT EXISTS backend.user_roles (
     user_id BIGINT NOT NULL,
     role_id BIGINT NOT NULL,
     PRIMARY KEY (user_id, role_id),
@@ -39,9 +50,8 @@ CREATE TABLE backend.user_roles (
         ON DELETE CASCADE
 );
 
--- Table for OCR scan results in the ocr_service schema
--- Stores the raw text extracted from product images.
-CREATE TABLE ocr_service.ocr_scan_results (
+-- Table for OCR scan results
+CREATE TABLE IF NOT EXISTS ocr_service.ocr_scan_results (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT,
     image_path VARCHAR(2048) NOT NULL,
@@ -55,9 +65,8 @@ CREATE TABLE ocr_service.ocr_scan_results (
         ON DELETE SET NULL
 );
 
--- Table for Computer Vision scan results in the cv_service schema
--- Stores results from the fake product detection analysis.
-CREATE TABLE cv_service.cv_scan_results (
+-- Table for Computer Vision scan results
+CREATE TABLE IF NOT EXISTS cv_service.cv_scan_results (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT,
     image_path VARCHAR(2048) NOT NULL,
@@ -71,8 +80,7 @@ CREATE TABLE cv_service.cv_scan_results (
 );
 
 -- Table for products in the compliance schema
--- This table holds product information relevant for legal metrology compliance checks.
-CREATE TABLE compliance.products (
+CREATE TABLE IF NOT EXISTS compliance.products (
     product_id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -83,9 +91,8 @@ CREATE TABLE compliance.products (
     last_checked_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table for compliance violations in the compliance schema
--- Records any detected violations of the Legal Metrology Act for a given product.
-CREATE TABLE compliance.violations (
+-- Table for compliance violations
+CREATE TABLE IF NOT EXISTS compliance.violations (
     violation_id BIGSERIAL PRIMARY KEY,
     product_id BIGINT NOT NULL,
     violated_rule_code VARCHAR(50),
@@ -99,11 +106,10 @@ CREATE TABLE compliance.violations (
         ON DELETE CASCADE
 );
 
--- Table for violation resolutions in the compliance schema
--- Tracks the resolution process for a specific violation.
-CREATE TABLE compliance.resolutions (
+-- Table for violation resolutions
+CREATE TABLE IF NOT EXISTS compliance.resolutions (
     resolution_id BIGSERIAL PRIMARY KEY,
-    violation_id BIGINT UNIQUE NOT NULL, -- A violation can only have one resolution
+    violation_id BIGINT UNIQUE NOT NULL,
     notes TEXT,
     resolved_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_violation
@@ -112,9 +118,8 @@ CREATE TABLE compliance.resolutions (
         ON DELETE CASCADE
 );
 
--- Table for complaints in the compliance schema
--- Stores user complaints about products, services, or compliance issues.
-CREATE TABLE compliance.complaints (
+-- Table for complaints
+CREATE TABLE IF NOT EXISTS compliance.complaints (
     complaint_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     product_id BIGINT,
@@ -141,18 +146,57 @@ CREATE TABLE compliance.complaints (
 );
 
 -- Create indexes for better performance
-CREATE INDEX idx_users_username ON backend.users(username);
-CREATE INDEX idx_users_email ON backend.users(email);
-CREATE INDEX idx_ocr_scan_results_user_id ON ocr_service.ocr_scan_results(user_id);
-CREATE INDEX idx_cv_scan_results_user_id ON cv_service.cv_scan_results(user_id);
-CREATE INDEX idx_violations_product_id ON compliance.violations(product_id);
-CREATE INDEX idx_violations_status ON compliance.violations(status);
-CREATE INDEX idx_products_name ON compliance.products(name);
-CREATE INDEX idx_complaints_user_id ON compliance.complaints(user_id);
-CREATE INDEX idx_complaints_status ON compliance.complaints(status);
-CREATE INDEX idx_complaints_type ON compliance.complaints(complaint_type);
-CREATE INDEX idx_complaints_priority ON compliance.complaints(priority);
-CREATE INDEX idx_complaints_created_at ON compliance.complaints(created_at);
+CREATE INDEX IF NOT EXISTS idx_users_username ON backend.users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON backend.users(email);
+CREATE INDEX IF NOT EXISTS idx_ocr_scan_results_user_id ON ocr_service.ocr_scan_results(user_id);
+CREATE INDEX IF NOT EXISTS idx_cv_scan_results_user_id ON cv_service.cv_scan_results(user_id);
+CREATE INDEX IF NOT EXISTS idx_violations_product_id ON compliance.violations(product_id);
+CREATE INDEX IF NOT EXISTS idx_violations_status ON compliance.violations(status);
+CREATE INDEX IF NOT EXISTS idx_products_name ON compliance.products(name);
+CREATE INDEX IF NOT EXISTS idx_complaints_user_id ON compliance.complaints(user_id);
+CREATE INDEX IF NOT EXISTS idx_complaints_status ON compliance.complaints(status);
+CREATE INDEX IF NOT EXISTS idx_complaints_type ON compliance.complaints(complaint_type);
+CREATE INDEX IF NOT EXISTS idx_complaints_priority ON compliance.complaints(priority);
+CREATE INDEX IF NOT EXISTS idx_complaints_created_at ON compliance.complaints(created_at);
+
+-- Insert sample data for testing
+-- Sample admin user (password: admin123)
+INSERT INTO backend.users (username, email, password) VALUES 
+    ('admin', 'admin@shopshield.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi')
+ON CONFLICT (username) DO NOTHING;
+
+-- Assign admin role to admin user
+INSERT INTO backend.user_roles (user_id, role_id) 
+SELECT u.id, r.id FROM backend.users u, backend.roles r 
+WHERE u.username = 'admin' AND r.name = 'ROLE_ADMIN'
+ON CONFLICT DO NOTHING;
+
+-- Sample products
+INSERT INTO compliance.products (name, description, weight, price, packaging_info) VALUES 
+    ('Organic Rice 1kg', 'Premium organic basmati rice', 1000.00, 250.00, 'Sealed plastic bag with cardboard outer packaging'),
+    ('Cooking Oil 500ml', 'Refined sunflower oil', 500.00, 120.00, 'Plastic bottle with tamper-proof cap'),
+    ('Instant Noodles', 'Vegetable flavor instant noodles', 75.00, 15.00, 'Individual sealed packet')
+ON CONFLICT DO NOTHING;
+
+-- Sample violations for testing
+INSERT INTO compliance.violations (product_id, violated_rule_code, violated_rule_description) 
+SELECT p.product_id, 'LM001', 'Missing mandatory weight declaration on package'
+FROM compliance.products p 
+WHERE p.name = 'Organic Rice 1kg'
+ON CONFLICT DO NOTHING;
+
+-- Sample complaints for testing
+INSERT INTO compliance.complaints (user_id, product_id, complaint_type, title, description, contact_info, priority) 
+SELECT u.id, p.product_id, 'PRODUCT_QUALITY', 'Poor quality rice received', 'The rice package I received contains broken grains and foreign particles. This does not match the product description.', 'customer@example.com', 'HIGH'
+FROM backend.users u, compliance.products p 
+WHERE u.username = 'admin' AND p.name = 'Organic Rice 1kg'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO compliance.complaints (user_id, complaint_type, title, description, contact_info, priority) 
+SELECT u.id, 'PRICING_ISSUE', 'Misleading price display', 'The displayed price was different from the charged amount at checkout. This seems like a pricing error.', 'concerned.buyer@example.com', 'MEDIUM'
+FROM backend.users u 
+WHERE u.username = 'admin'
+ON CONFLICT DO NOTHING;
 
 -- Add comments on tables
 COMMENT ON TABLE backend.users IS 'Stores user information for authentication and authorization.';
